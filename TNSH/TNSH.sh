@@ -9,58 +9,75 @@
 # TrueNAS SCALE Helper by Daniel Ketel, 2024
 # For latest version visit https://github.com/kage-chan/HomeLab/TNSH
 # TrueNAS® is a registered Trademark of IXsystems, Inc.
+#
+
+# Settings that are user-editable
+debug=true;
 
 # Global variables
 newPartition="";
+version="0.4"
 
-#------------------------------------------------------------------------------
-# name: mainmenu
-# args: none
-# Shows main menu and lets user choose what to do
-#------------------------------------------------------------------------------
-mainmenu () {
-	clear
-	echo "";
+printHeader () {
 	echo "                                                                      ";
 	echo " _____             _____ _____ _____    _____ _____ _____ __    _____ ";
 	echo "|_   _|___ _ _ ___|   | |  _  |   __|  |   __|     |  _  |  |  |   __|";
 	echo "  | | |  _| | | -_| | | |     |__   |  |__   |   --|     |  |__|   __|";
 	echo "  |_| |_| |___|___|_|___|__|__|_____|  |_____|_____|__|__|_____|_____|";
 	echo "                                                                      ";
-	echo "                               Helper  v0.2                           ";
+	echo "                               Helper  v"$version"                           ";
 	echo "";
 	echo " 2024, Daniel Ketel. For latest version visit ";
 	echo " https://github.com/kage-chan/HomeLab/TNSH";
 	echo "";
+}
+
+#------------------------------------------------------------------------------
+# name: mainMenu
+# args: none
+# Shows main menu and lets user choose what to do
+#------------------------------------------------------------------------------
+mainMenu () {
+	clear
 	echo "";
-	echo "Press p to show post-install menu";
-	echo "Press 1 to optimize power settings";
-	echo "Press 2 to install docker & portainer";
-	echo "Press q to quit";
+	
+	printHeader
+	
+	echo "";
+	echo "  Press p to show post-install menu";
+	echo "  Press 1 to optimize power settings";
+	echo "  Press 2 to install docker & portainer";
+	echo "  Press 0 to remove init script and revert changes";
+	echo "  Press q to quit";
 	echo ""
 	# Let user choose menu entry.
 	while true; do
-		read -n 1 -p "Input Selection:  " mainmenuinput
-		case $mainmenuinput in
+		read -n 1 -p "  Input Selection:  " mainMenuInput
+		case $mainMenuInput in
+		[0]*)
+			removeInitScript
+			break
+			;;
 		[1]*)
-			optimizepower
+			optimizePower
 			break
 			;;
 		[2]*)
-			installdocker
+			installDocker
 			break
 			;;
 		[pP]*)
-			postinstall
+			postInstall
 			break
 			;;
 		[qQ]*)
+			echo "";
 			echo "";
 			exit;
 			;;
 		*)
 			echo "";
-			echo "Invalid selection. Please select one of the above options.";
+			echo "  Invalid selection. Please select one of the above options.";
 			echo "";
 		esac
 	done	
@@ -71,25 +88,25 @@ mainmenu () {
 # args: none
 # Shows post-install menu and lets user choose what to do
 #------------------------------------------------------------------------------
-postinstall () {
+postInstall () {
 	clear
 	echo ""
-	echo "Post-install Menu"
+	echo "  Post-install Menu"
 	echo ""
-	echo "!!! DANGER ZONE !!!"
-	echo "Executing these options is meant to be done right after the installation."
-	echo "They might break your system if used on a non-clean install."
-	echo "Proceed on your own risk!"
+	echo "  !!! DANGER ZONE !!!"
+	echo "  Executing these options is meant to be done right after the installation."
+	echo "  They might break your system if used on a non-clean install."
+	echo "  Proceed on your own risk!"
 	echo ""
-	echo "Press 1 to fill up system drive with new parititon"
-	echo "Press 2 to make new partition available in zpool"
-	echo "Press q to return to main menu"
+	echo "  Press 1 to fill up system drive with new parititon"
+	echo "  Press 2 to make new partition available in zpool"
+	echo "  Press q to return to main menu"
 	echo ""
 	
 	while true; do
-		read -n 1 -p "Input Selection:  " postinstallinput
+		read -n 1 -p "  Input Selection:  " postInstallInput
 		
-		case $postinstallinput in
+		case $postInstallInput in
 		[1]*)
 			fillSysDrive
 			break
@@ -99,26 +116,126 @@ postinstall () {
 			break
 			;;
 		[qQ]*)
-			mainmenu
+			mainMenu
 			break
 			;;
 		*)
-			echo "Invalid selection. Please select one of the above options."
-			echo "Press any key to continue..."
-			read -n 1
-			clear
-			postinstall
-			break
-			;;
+			echo ""
+			echo "  Invalid selection. Please select one of the above options."
+			echo ""
+			continue
 		esac
 	done
 }
 
-optimizepower () {
-  echo "Not implemented yet"
+#------------------------------------------------------------------------------
+# name: installModeMenu
+# args: none
+# Modifies the TrueNAS SCALE installer, user can choose partition size
+#------------------------------------------------------------------------------
+installModeMenu () {
+	clear
+	echo "";
+	
+	printHeader
+	
+	echo "";
+	echo "  ---=== INSTALL MODE ===---";
+	echo "  In install mode this script offers only one function:";
+	echo "  Install TrueNAS SCALE on a partition rather than the whole disk.";
+	echo "";
+	echo "  Please choose the size of the system partition";
+	echo "";
+	echo "  1.  16 GB  (is enough, might get tight at some point)";
+	echo "  2.  32 GB  (generally recommended)";
+	echo "  3.  64 GB  (to be on the safe side, if you have some disk space to spare)";
+	echo "  Press q to quit";
+	echo "";
+	
+	size="";
+	
+	# Let user choose partition size
+	while true; do
+		read -n 1 -p "  Input Selection:  " installInput
+		
+		case $installInput in
+		[1]*)
+			size="16G"
+			break
+			;;
+		[2]*)
+			size="32G"
+			break
+			;;
+		[3]*)
+			size="64G"
+			break
+			;;
+		[qQ]*)
+			exit;
+			;;
+		*)
+			echo ""
+			echo "  Invalid selection. Please select one of the above options."
+			echo ""
+			continue
+		esac
+	done
+	
+	sed -i 's/sgdisk -n3:0:0/sgdisk -n3:0:+'$size'/g' /usr/sbin/truenas-install /usr/sbin/truenas-install
+	/usr/sbin/truenas-install
+	exit
 }
 
-installdocker () {
+#------------------------------------------------------------------------------
+# name: optimizePower
+# args: none
+# Shows post-install menu and lets user choose what to do
+#------------------------------------------------------------------------------
+optimizePower () {
+	echo "";
+	echo "  Checking if PCIE ASPM is enabled..."
+	if [ $(dmesg | grep "OS supports" | grep ASPM | wc -l) -ge 1 ] ; then
+		echo "  PCIE ASPM supported by os and active. Activating powersave modes."
+	else
+		echo ""
+		echo "  No PCIE ASPM detected"
+		echo "  If hardware supports ASPM, please check BIOS if ASPM is to be handled by OS or BIOS. If \"Auto\" setting exists, force ASPM to be handled by OS. You may also try using the4 pcie_aspm=force kernel parameter. Before doing so, please ensure that all your PCIe devices do support ASPM, otherwise forcing the kernel to enable ASPM might result in an unstable system."
+	fi
+	
+	powertop --auto-tune -q >> /dev/null
+	echo "powersave" > /sys/module/pcie_aspm/parameters/policy
+	
+	while true; do
+		echo "  Power usage optimized. May take a minute to settle in. Please check power usage if available";
+		echo "";
+		read -n 1 -p "  Do you want these settings to be made permanent? [y/n]  " keepChanges
+		
+		case $keepChanges in
+		[yY]*)
+			# Create RC script
+			buildInitScript POWER
+			echo "  Changes made permanent"
+			break
+			;;
+		[nN]*)
+			echo "";
+			echo "  Resetting PCIe ASPM mode to default. To fully revert to default power management, please reboot";
+			echo default > /sys/module/pcie_aspm/parameters/policy
+			break
+			;;
+		*)
+			echo ""
+			echo "  Invalid selection. Please select yes or no."
+			continue
+		esac
+	done
+	
+	read -n 1 -p "  Press any key to return to main menu"
+	mainMenu
+}
+
+installDocker () {
   echo "Not implemented yet"
 }
 
@@ -129,18 +246,18 @@ installdocker () {
 #------------------------------------------------------------------------------
 fillSysDrive () {
 	echo ""
-	echo "Block devices detected:"
+	echo "  Block devices detected:"
   
 	# Get list of block devices and push into an array
 	blks=$(lsblk -o NAME --path | grep "^[/]")
 	devices=()
 	j=1
 	echo "";
-	echo "0.  Abort";
+	echo "  0.  Abort";
 	while read -ra dev; do
 		for i in "${dev[@]}"; do
 			devices+=($i)
-			echo  $j". " $i
+			echo "  "$j". " $i
 			((j=j+1))
 		done
 	done <<< "$blks"
@@ -148,28 +265,28 @@ fillSysDrive () {
 	# Show detected block devices and let user choose right one
 	echo ""
 	while true; do
-		read -n 1 -p "Select block device TrueNAS SCALE is installed on: [0-"$((j-1))"] " selectedDrive
+		read -n 1 -p "  Select block device TrueNAS SCALE is installed on: [0-"$((j-1))"] " selectedDrive
 		
 		# Check if input is numeric
 		re='^[0-9]'
 		if ! [[ $selectedDrive =~ $re ]] ; then
 			echo "";
-			echo "Error: Not a number. Please try again.";
+			echo "  Error: Not a number. Please try again.";
 			continue
 		fi
 
 		# Check if selection is higher than list length
 		if [ "$selectedDrive" -gt "${#devices[@]}" ] ; then
-			echo "Error: Not a valid option"
+			echo "  Error: Not a valid option"
 			continue
 		fi
 		
 		# Return to menu if user requested abort
 		if [[ "$selectedDrive" == 0 ]]; then
 			echo "";
-			echo "Aborted";
-			read -p "Press Enter to return to post-install menu"
-			postinstall
+			echo "  Aborted";
+			read -p "  Press Enter to return to post-install menu"
+			postInstall
 		fi
 		
 		break
@@ -184,12 +301,12 @@ fillSysDrive () {
 
 	# Show result to user and ask for confirmation
 	echo "";
-	echo "Please check below if the partition \"services\" has been created successfully";
+	echo "  Please check below if the partition \"services\" has been created successfully";
 	echo "";
 	parted -s $device unit GB print;
 
 	while true; do
-		read -n 1 -p "Has the partition successfully been created? [y/n]  " confirmation
+		read -n 1 -p "  Has the partition successfully been created? [y/n]  " confirmation
   
 		case $confirmation in
 		[yY]*)
@@ -198,11 +315,11 @@ fillSysDrive () {
 			;;
 		[nN]*)
 			echo "";
-			echo "Error: unable to create services partition. Exiting";
+			echo "  Error: unable to create services partition. Exiting";
 			exit
 			;;
 		*)
-			echo "Invalid choice. Please try again";
+			echo "  Invalid choice. Please try again";
 		esac
 	done
 	
@@ -211,7 +328,7 @@ fillSysDrive () {
 	# Ask user if script should proceed and make created partition available to zpool
 	numPartitions=0;
 	while true; do
-		read -n 1 -p "Should the new partition be made available to zpool now? [y/n]  " dozpool
+		read -n 1 -p "  Should the new partition be made available to zpool now? [y/n]  " dozpool
   
 		case $dozpool in
 		[yY]*)
@@ -230,7 +347,7 @@ fillSysDrive () {
 			break
 			;;
 		*)
-			echo "Invalid choice. Please try again";
+			echo "  Invalid choice. Please try again";
 		esac
 	done
 }
@@ -244,38 +361,38 @@ makeAvailableZpool () {
 		devices=()
 		j=1
 		echo "";
-		echo "0.  Abort";
+		echo "  0.  Abort";
 		while read -ra dev; do
 			for i in "${dev[@]}"; do
 			devices+=($i)
-			echo  $j". " $i
+			echo "  "$j". " $i
 			((j=j+1))
 			done
 		done <<< "$blks"
 		
 		echo ""
 		while true; do
-			read -n 1 -p "Select block device to use: [0-"$((j-1))"] " selectedDev
+			read -n 1 -p "  Select block device to use: [0-"$((j-1))"] " selectedDev
 		
 			# Check if input is numeric
 			re='^[0-9]'
 			if ! [[ $selectedDev =~ $re ]] ; then
 				echo "";
-				echo "Error: Not a number. Please try again.";
+				echo "  Error: Not a number. Please try again.";
 				continue
 			fi
 
 			# Check if selection is higher than list length
 			if [ "$selectedDev" -gt "${#devices[@]}" ] ; then
-				echo "Error: Not a valid option"
+				echo "  Error: Not a valid option"
 				continue
 			fi
 		
 			# Return to menu if user requested abort
 			if [[ "$selectedDev" == 0 ]]; then
 				echo "";
-				echo "Aborted";
-				read -p "Press Enter to return to post-install menu"
+				echo "  Aborted";
+				read -p "  Press Enter to return to post-install menu"
 				postinstall
 			fi
 			
@@ -290,39 +407,39 @@ makeAvailableZpool () {
 		partitions=()
 		j=1
 		echo "";
-		echo "0.  Abort";
+		echo "  0.  Abort";
 		while read -ra part; do
 			for i in "${part[@]}"; do
 			partitions+=($i)
-			echo  $j". " $i
+			echo "  "$j". " $i
 			((j=j+1))
 			done
 		done <<< "$parts"
 		
 		echo ""
 		while true; do
-			read -n 1 -p "Select partition to use: [0-"$((j-1))"] " selectedPart
+			read -n 1 -p "  Select partition to use: [0-"$((j-1))"] " selectedPart
 		
 			# Check if input is numeric
 			re='^[0-9]'
 			if ! [[ $selectedPart =~ $re ]] ; then
 				echo "";
-				echo "Error: Not a number. Please try again.";
+				echo "  Error: Not a number. Please try again.";
 				continue
 			fi
 
 			# Check if selection is higher than list length
 			if [ "$selectedPart" -gt "${#partitions[@]}" ] ; then
-				echo "Error: Not a valid option"
+				echo "  Error: Not a valid option"
 				continue
 			fi
 		
 			# Return to menu if user requested abort
 			if [[ "$selectedPart" == 0 ]]; then
 				echo "";
-				echo "Aborted";
-				read -p "Press Enter to return to post-install menu"
-				postinstall
+				echo "  Aborted";
+				read -p "  Press Enter to return to post-install menu"
+				postInstall
 			fi
 			
 			break
@@ -335,17 +452,198 @@ makeAvailableZpool () {
 		fi
 	fi
 	
+	# Using the TrueNAS CLI here is not possible, since storage pool create does not support
+	# creating pools with partitoins, but only whole devices.
 	zpool create services $newPartition
 	zpool export services
 	
-	postinstall
+	echo "  Successfully created and exported zpool.";
+	echo "  Sadly, at this point TrueNAS SCALE's CLI's storage pool import_pool command is broken and does not correspond to the documentation."
+	echo "  So, to have full control over the pool, please import it from the \"Storage\" screen in the WebUI.";
+	echo "  Please import the pool with the name \"services\".";
+	
+	postInstall
 }
+
+buildInitScript () {
+	configPower=false
+	configDocker=false
+	initScript=/etc/init.d/tnsh
+	initExists=false
+	# If rc script exists, find out current configuration
+	if test -f $initScript ; then
+		initExists=true
+	
+		if $debug ; then
+			echo "";
+			echo "  Init script already exists. Checking contents";
+		fi
+		
+		# Current configuration is coded into the third line of init script
+		config=$(sed -n '3q;d' $initScript)
+		for i in "${config[@]}"; do
+			case $i in
+			[POWER]*)
+				configPower=true
+				break
+				;;
+			[DOCKER]*)
+				configDocker=true
+				break
+				;;
+			*)
+			esac
+		done
+	else
+		touch $initScript
+	fi
+	
+	# Check what is to be added
+	case $1 in
+	[POWER]*)
+		configPower=true
+		;;
+	[DOCKER]*)
+		configDocker=true
+		;;
+	*)
+	esac
+	
+	# Write file header including current config
+	echo "#!/bin/bash" > $initScript;
+	echo "# ! DO NOT EDIT THIS FILE !" >> $initScript;
+
+	echo -n "#" >> $initScript;
+	
+	if $configPower == true ; then
+		echo -n " POWER" >> $initScript;
+	fi
+	
+	if $configDocker == true ; then
+		echo -n " DOCKER" >> $initScript;
+	fi
+	
+	echo ""
+	if $debug ; then
+		echo "  Writing init script...";
+	fi
+	
+	# Write file's description
+	printHeader >> $initScript
+	echo ""  >> $initScript;
+	echo " This is a supplement script to make the original script's settings   "  >> $initScript;
+	echo " permanent and enable them at boot."  >> $initScript;
+	echo ""  >> $initScript;
+	
+	
+	# Actual init script starts here
+	if $configPower == true ; then
+		echo ""  >> $initScript;
+		echo "# Powermanagement"  >> $initScript;
+		echo "powertop --auto-tune"  >> $initScript;
+		echo "echo powersave > /sys/module/pcie_aspm/parameters/policy"  >> $initScript;
+	fi
+	
+	if $configDocker == true; then
+		echo ""  >> $initScript;
+		echo "# Docker container"  >> $initScript;
+		echo ""  >> $initScript;
+		echo ""  >> $initScript;
+	fi
+	
+	# Enable init script
+	query=$(cli -c "system init_shutdown_script query" | grep tnsh | wc -l)
+	if [ "$query" -lt 1 ] ; then
+		chmod ugo+x /etc/init.d/tnsh
+		cli -c "system init_shutdown_script create type=SCRIPT script=\"/etc/init.d/tnsh\" when=POSTINIT"
+	fi
+}
+
+removeInitScript () {
+	# Ask user if he is sure
+	while true; do
+		echo "";
+		echo "  Deleting the init script will revert all permanent changes to the system after rebooting.";
+		read -n 1 -p "  Are your sure that you want to delete the init script? [y/n]  " confirmation
+  
+		case $confirmation in
+		[yY]*)
+			echo "";
+			if $debug ; then
+				echo "  Deleting /etc/init.d/tnsh.sh";
+			fi
+			
+			# Get current ID of tnsh init script
+			OIFS=$IFS
+			IFS='|'
+			query=$(cli -c "system init_shutdown_script query" | grep tnsh)
+			IFS=$OIFS
+			
+			if $debug ; then
+				echo "  Query returned the following entries: ";
+				echo $query
+			fi
+			
+			# Check if init script was registered. If not, return to main menu
+			if [ ${#query} -eq 0 ] ; then
+				echo "  Init script has not been registered with startup system in the past. Aborting."
+				read -p "  Press Enter to return to main menu"
+				mainMenu
+			fi
+			
+			id=0
+			j=0;
+			for i in $query ; do
+				if [ $j -eq 1 ] ; then
+					if $debug ; then
+						echo "  ID is" $i;
+						echo "  Deleting entry";
+					fi
+					
+					cli -c "system init_shutdown_script delete id=\""$i"\""
+				fi
+				((j=j+1))
+			done
+			
+			rm /etc/init.d/tnsh
+			read -p "  Press Enter to return to main menu"
+			mainMenu
+			;;
+		[nN]*)
+			echo "";
+			read -p "  Aborting. Press Enter to return to main menu"
+			mainMenu
+			;;
+		*)
+			echo "  Invalid choice. Please try again";
+		esac
+	done
+}
+
 
 
 # Check if script is running as root
 if [ $(whoami) != 'root' ]; then
-	echo "This script must be run as root. Please try again as root."
+	echo "  This script must be run as root. Please try again as root."
 	exit;
 fi
 
-mainmenu
+# Check if running on install boot media
+cmdline=$(cat /proc/cmdline | grep "vmlinuz " | grep "boot=live" | wc -l)
+if [ "$cmdline" -ge 1 ] ; then
+	read -n 1 -p "  Installer environment detected. Do you want to proceed in install mode? [y/n]  " confirmation
+  
+		case $confirmation in
+		[yY]*)
+			installModeMenu
+			;;
+		[nN]*)
+			echo "  Continuing in normal mode";
+			echo "";
+			;;
+		*)
+			;;
+		esac
+fi
+
+mainMenu

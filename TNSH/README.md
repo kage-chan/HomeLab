@@ -17,3 +17,24 @@ With the disclaimer out of the way, here's what the script can do fo you:
 - Reduce power usage when you want to stick to k3s
 - you will not be able to use TrueNAS SCALE's UI to manage Apps/Containers
 
+# Usage
+
+## During TrueNAS SCALE install
+To install TrueNAS SCALE on a partition instead of the whole disk, the script offers a convenient "installer mode", which is only active if you start the script from the TrueNAS SCALE environment. To use the script, please choose "Shell" from the installer menu. In the shell, make sure that you have internet access and run the following code:
+```
+curl -O https://raw.githubusercontent.com/kage-chan/HomeLab/main/TNSH/TNSH.sh
+chmod +x TNSH.sh
+./TNSH.sh
+```
+The script will detect the TrueNAS SCALE installer environment and prompt you. After confirming, please choose the size of the partition for TrueNAS SCALE. You'll be guided back into the actual installer, where you can carry on with the install as usual.
+
+NOTE: Please make sure the partition size you choose is smaller than the disk you have, otherwise the install will fail. In that case, just reboot from the installer stick and retry.
+
+
+## After the install
+To use the script, simply download it and make it executable. The script MUST be run as root, since it does work with pretty important system settings.
+```
+curl -O https://raw.githubusercontent.com/kage-chan/HomeLab/main/TNSH/TNSH.sh
+chmod +x TNSH.sh
+sudo TNSH.sh
+```
