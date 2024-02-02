@@ -1,6 +1,6 @@
 <p align="center">
   <a>
-    <img src="https://raw.githubusercontent.com/kage-chan/HomeLab/main/TNSH/screenshot.png" alt="TNSH Screenshot" height="150">
+    <img src="https://raw.githubusercontent.com/kage-chan/HomeLab/main/TNSH/screenshot.png" alt="TNSH Screenshot" height="250">
     <h1 align="center">TrueNAS SCALE Helper Script</h1>
   </a>
 </p>
