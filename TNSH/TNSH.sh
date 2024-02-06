@@ -12,7 +12,7 @@
 #
 
 # Settings that are user-editable
-debug=true;
+debug=false;
 
 # Global variables
 newPartition="";
@@ -237,6 +237,7 @@ optimizePower () {
 
 installDocker () {
   echo "Not implemented yet"
+  mainMenu
   
   # TODO Steps needed
   # Create Bridge interface (if not already done by user)
@@ -292,7 +293,7 @@ installDocker () {
    
 	# Create the new network bridge
 	# cli -c "network interface create name=\"br0\" type=BRIDGE bridge_members=\"enp4s0\" ipv4_dhcp=true"
-	# cli -c "network interface update name=\"enp4s0\" ipv4_dhcp=false"
+	# cli -c "network interface update enp4s0 ipv4_dhcp=false"
 	cli -c "network interface create name=\"br"${#bridges[@]}"\" type=BRIDGE bridge_members=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=true"
 	cli -c "network interface update name=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=false"
   
@@ -633,8 +634,8 @@ buildInitScript () {
 	# Make sure header is commented, otherwise script will be broken
 	printHeader | sed 's/^/# /' >> $initScript
 	echo ""  >> $initScript;
-	echo " This is a supplement script to make the original script's settings   "  >> $initScript;
-	echo " permanent and enable them at boot."  >> $initScript;
+	echo "#  This is a supplement script to make the original script's settings   "  >> $initScript;
+	echo "#  permanent and enable them at boot."  >> $initScript;
 	echo ""  >> $initScript;
 	
 	
