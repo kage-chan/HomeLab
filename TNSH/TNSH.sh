@@ -16,7 +16,7 @@ debug=false;
 
 # Global variables
 newPartition="";
-version="0.45"
+version="0.5"
 
 printHeader () {
 	echo "                                                                      ";
@@ -565,10 +565,58 @@ buildInitScript () {
 		initScript=/mnt/services/tnshInit.sh
 	else
 		echo "";
-		echo "  No services partition detected in /mnt/services! The init script will be ";
-		echo "  placed in /etc/init.d by default instead.";
-		echo "  WARNING: You will have to rerun this script after every update of TrueNAS SCALE!";
-		initScript=/etc/inint.d/tnsh
+		echo "  No services partition detected in /mnt/services!";
+		echo "";
+		echo "  You can choose a custom path for the init script at this point. Please note that ";
+		echo "  this in theory is optional. \"/etc/init.d/tnsh\" will be used if you leave the";
+		echo "  path empty. ";
+		echo "  WARNING: In the default location the init script will likely be removed each time";
+		echo "           you install an update for TrueNAS SCALE. Only paths on a different dataset";
+		echo "           than the system will survive updates!";
+		echo "";
+		
+		while true; do
+			read -p "  Please specify desired directory for the init script: " initScript
+		
+			if [[ -z "$initScript" ]] ; then
+				echo "";
+				echo "  Using /etc/init.d/tnsh. ";
+				echo "  It is very likely that the script will be removed by future TrueNAS SCALE updates.";
+				echo "  Please be aware of this and periodically rerun this script after updating TrueNAS SCALE.";
+				echo "";
+				initScript=/etc/init.d/tnsh
+				break
+			fi
+			
+			if [[ ! -d "$initScript" ]] ; then
+				echo "";
+				echo "  Directory does not exist. Please specify an existing folder.";
+				echo "";
+				continue
+			fi
+		
+			if [[ $initScript != /* ]] ; then
+				echo ""
+				echo "  Please specify an absolute path";
+				echo ""
+				continue
+			fi
+		
+			if [[ $initScript != /mnt/* ]] ; then
+				echo "";
+				echo "  Path is not inside a different dataset.";
+				echo "  It is very likely that the script will be removed by future TrueNAS SCALE updates.";
+				echo "  Please be aware of this and periodically rerun this script after updating TrueNAS SCALE.";
+				echo "";
+				
+				if [[ $initScript == */ ]] ; then
+					initScript+="tnshInit.sh"
+				else
+					initScript+="/tnshInit.sh"
+				fi
+				break
+			fi
+		done
 	fi
 	
 	if test -f $initScript; then
@@ -668,6 +716,7 @@ buildInitScript () {
 # Deletes the init script and unregisters it from TrueNAS SCALE's init system
 #------------------------------------------------------------------------------
 removeInitScript () {
+	initScript="/mnt/services/tnshInit.sh"
 	# Ask user if he is sure
 	while true; do
 		echo "";
@@ -677,9 +726,6 @@ removeInitScript () {
 		case $confirmation in
 		[yY]*)
 			echo "";
-			if $debug ; then
-				echo "  Deleting /etc/init.d/tnsh.sh";
-			fi
 			
 			# Get current ID of tnsh init script
 			OIFS=$IFS
@@ -710,10 +756,18 @@ removeInitScript () {
 					
 					cli -c "system init_shutdown_script delete id=\""$i"\""
 				fi
+				
+				if [ $j -eq 6 ] ; then
+					if $debug ; then
+						echo "  Path to init script is" $i"; Deleting";
+					fi
+					
+					rm $i >> /dev/null
+				fi
 				((j=j+1))
 			done
 			
-			rm /etc/init.d/tnsh
+			
 			read -p "  Press Enter to return to main menu"
 			mainMenu
 			;;
