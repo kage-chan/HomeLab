@@ -16,7 +16,7 @@ debug=true;
 
 # Global variables
 newPartition="";
-version="0.4"
+version="0.45"
 
 printHeader () {
 	echo "                                                                      ";
@@ -231,12 +231,74 @@ optimizePower () {
 		esac
 	done
 	
-	read -n 1 -p "  Press any key to return to main menu"
+	read -n 1 -p "  Press any key to return to the main menu"
 	mainMenu
 }
 
 installDocker () {
   echo "Not implemented yet"
+  
+  # TODO Steps needed
+  # Create Bridge interface (if not already done by user)
+	ifaces=$(ifconfig -s)
+	interfaces=()
+	bridges=()
+	j=1
+	echo "";
+	echo "  0.  Abort";
+	while read -ra dev; do
+		for i in "${dev[@]}"; do
+			interfaces+=($i)
+			echo "  "$j". " $i
+			
+			# If interface is a bridge interface, additionally put it into the list of bridges,
+			# so we can correctly determine the number for the new bridge interface without breaking things
+			if [[ $string == br[0-9]* ]] ; then
+				bridges+=($i)
+			fi
+			((j=j+1))
+		done
+	done <<< "$ifaces"
+	
+	# Show detected network interfaces and let user choose the one ha wants to use
+	echo ""
+	while true; do
+		read -n 1 -p "  Select network interface currently in use: [0-"$((j-1))"] " selectedInterface
+		
+		# Check if input is numeric
+		re='^[0-9]'
+		if ! [[ $selectedInterface =~ $re ]] ; then
+			echo "";
+			echo "  Error: Not a number. Please try again.";
+			continue
+		fi
+
+		# Check if selection is higher than list length
+		if [ "$selectedInterface" -gt "${#devices[@]}" ] ; then
+			echo "  Error: Not a valid option"
+			continue
+		fi
+		
+		# Return to menu if user requested abort
+		if [[ "$selectedInterface" == 0 ]]; then
+			echo "";
+			echo "  Aborted";
+			read -p "  Press any key to return to the main menu"
+			mainMenu
+		fi
+		
+		break
+	done
+   
+	# Create the new network bridge
+	# cli -c "network interface create name=\"br0\" type=BRIDGE bridge_members=\"enp4s0\" ipv4_dhcp=true"
+	# cli -c "network interface update name=\"enp4s0\" ipv4_dhcp=false"
+	cli -c "network interface create name=\"br"${#bridges[@]}"\" type=BRIDGE bridge_members=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=true"
+	cli -c "network interface update name=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=false"
+  
+  # Create systemd-nspawn "container" (ask user which filesystems to "import" there)
+  # Install docker inside the container (ask if portainer + watchtower)
+  # Add code to init script that starts container at boot post init
 }
 
 #------------------------------------------------------------------------------
@@ -352,6 +414,12 @@ fillSysDrive () {
 	done
 }
 
+#------------------------------------------------------------------------------
+# name: makeAvailableZpool
+# args: none
+# Creates a zpool using the additional partition on the system disk and
+# exports it, so it can be imported again from the UI
+#------------------------------------------------------------------------------
 makeAvailableZpool () {
 	# Determine if partition has been created in previous step
 	if [ "$newPartition" = "" ]; then
@@ -403,7 +471,7 @@ makeAvailableZpool () {
 		
 		# Let user choose partition to use
 		# Discard first entry in list, because it will be the device itself
-		parts=$(lsblk -l -o NAME --path  | grep "^$device" | tail -n +2 | wc -l)
+		parts=$(lsblk -l -o NAME --path  | grep "^$device" | tail -n +2)
 		partitions=()
 		j=1
 		echo "";
@@ -452,26 +520,57 @@ makeAvailableZpool () {
 		fi
 	fi
 	
+	if $debug ; then
+		echo "";
+		echo "  Partition to be used:" $newPartition;
+	fi
+	
 	# Using the TrueNAS CLI here is not possible, since storage pool create does not support
 	# creating pools with partitoins, but only whole devices.
-	zpool create services $newPartition
+	zpool create -f services $newPartition
 	zpool export services
+	# TODO Maybe use the following command in future versions?
+	# cli -c "storage pool create name=\"services\" topology={\"data\":{\"type\":\"STRIPE\",\"disks\":[\"/dev/nvme0n1p5\"]}}
+	# Should do the same, but must do a little more testing
 	
 	echo "  Successfully created and exported zpool.";
 	echo "  Sadly, at this point TrueNAS SCALE's CLI's storage pool import_pool command is broken and does not correspond to the documentation."
 	echo "  So, to have full control over the pool, please import it from the \"Storage\" screen in the WebUI.";
 	echo "  Please import the pool with the name \"services\".";
 	
+	echo ""
+	read -p "  Press Enter to return to post-install menu"
 	postInstall
 }
 
+#------------------------------------------------------------------------------
+# name: buildInitScript
+# args: none
+# Builds the init script, writes it and registers it with TrueNAS SCALES's
+# init system so it will be called during boot
+#------------------------------------------------------------------------------
 buildInitScript () {
 	configPower=false
 	configDocker=false
-	initScript=/etc/init.d/tnsh
+	initScript=""
 	initExists=false
 	# If rc script exists, find out current configuration
-	if test -f $initScript ; then
+	if test -d /mnt/services ; then
+		if $debug ; then
+			echo "";
+			echo "  Detected services partition. Will place config file there";
+		fi
+		
+		initScript=/mnt/services/tnshInit.sh
+	else
+		echo "";
+		echo "  No services partition detected in /mnt/services! The init script will be ";
+		echo "  placed in /etc/init.d by default instead.";
+		echo "  WARNING: You will have to rerun this script after every update of TrueNAS SCALE!";
+		initScript=/etc/inint.d/tnsh
+	fi
+	
+	if test -f $initScript; then
 		initExists=true
 	
 		if $debug ; then
@@ -529,7 +628,10 @@ buildInitScript () {
 	fi
 	
 	# Write file's description
-	printHeader >> $initScript
+	echo "" >> $initScript;
+	echo "#" >> $initScript;
+	# Make sure header is commented, otherwise script will be broken
+	printHeader | sed 's/^/# /' >> $initScript
 	echo ""  >> $initScript;
 	echo " This is a supplement script to make the original script's settings   "  >> $initScript;
 	echo " permanent and enable them at boot."  >> $initScript;
@@ -554,11 +656,16 @@ buildInitScript () {
 	# Enable init script
 	query=$(cli -c "system init_shutdown_script query" | grep tnsh | wc -l)
 	if [ "$query" -lt 1 ] ; then
-		chmod ugo+x /etc/init.d/tnsh
-		cli -c "system init_shutdown_script create type=SCRIPT script=\"/etc/init.d/tnsh\" when=POSTINIT"
+		chmod ugo+x $initScript
+		cli -c "system init_shutdown_script create type=SCRIPT script=\""$initScript"\" when=POSTINIT"
 	fi
 }
 
+#------------------------------------------------------------------------------
+# name: removeInitScript
+# args: none
+# Deletes the init script and unregisters it from TrueNAS SCALE's init system
+#------------------------------------------------------------------------------
 removeInitScript () {
 	# Ask user if he is sure
 	while true; do
@@ -621,6 +728,11 @@ removeInitScript () {
 }
 
 
+#------------------------------------------------------------------------------
+# name: 
+# args: none
+# Main program that is called when script is launched
+#------------------------------------------------------------------------------
 
 # Check if script is running as root
 if [ $(whoami) != 'root' ]; then
