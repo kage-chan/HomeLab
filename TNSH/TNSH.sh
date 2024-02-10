@@ -458,6 +458,8 @@ installDocker () {
 				mainMenu
 			fi
 			
+			# TODO Check if selected interface is already member of other bridge
+			
 			break
 		done
 		
@@ -479,62 +481,145 @@ installDocker () {
 		cli -c "network interface create name=\""$bridgeToUse"\" type=BRIDGE bridge_members=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=true"
 	fi
   
+	# Check if services partition exists and suggest placing container there
+	if test -d /mnt/services ; then
+		echo "";
+		echo "  TNSH-services partition detected. The suggested location for the container is";
+		echo "  /mnt/services/dockerNspawn. It is recommended to use this location, since it does";
+		echo "  ensure that the container will also survive TrueNAS SCALE updates.";
+		
+		read -n 1 -p "  Do you want to place the script in the suggested location? [Y/n]  " suggestedLocation
+  		
+		case $suggestedLocation in
+		''|[yY]*)
+			dockerPath="/mnt/services/dockerNspawn"
+			choosePath=false
+			;;
+		[nN]*)
+			choosePath=true
+			;;
+		*)
+			echo "  Invalid choice. Please try again";
+		esac
+	fi
+  
 	# Create systemd-nspawn "container" (ask user which filesystems to "import" there?)
-	while true; do
-		echo " ";
-		read -p "  Please specify directory to use for the container: " pathForContainer
+	
+	if $choosePath ; then
+		while true; do
+			echo " ";
+			read -p "  Please specify directory to use for the container: " pathForContainer
+			
+			if [[ -z "$pathForContainer" ]] ; then
+				echo ""
+				echo "  Please specify a valid absolute path!";
+				echo ""
+				continue
+			fi
+			
+			if [[ $pathForContainer != /* ]] ; then
+				echo ""
+				echo "  Please specify a valid absolute path!";
+				echo ""
+				continue
+			fi
+			
+			if [[ ! -d "$pathForContainer" ]] ; then
+				echo "";
+				echo "  Directory does not exist. Creating.";
+				echo "";
+				dockerPath=$pathForContainer
+				break
+			fi
+		done
 		
-		if [[ -z "$pathForContainer" ]] ; then
-			echo ""
-			echo "  Please specify a valid absolute path!";
-			echo ""
-			continue
-		fi
-		
-		if [[ $pathForContainer != /* ]] ; then
-			echo ""
-			echo "  Please specify a valid absolute path!";
-			echo ""
-			continue
-		fi
-		
-		if [[ ! -d "$pathForContainer" ]] ; then
+		if [[ $pathForContainer != /mnt/* ]] ; then
 			echo "";
-			echo "  Directory does not exist. Creating.";
+			echo "  Path is inside a system dataset.";
+			echo "  The container might be damaged or removed during future TrueNAS SCALE updates.";
+			echo "  Please be aware of this and periodically backup your container.";
 			echo "";
-			mkdir -p $pathForContainer
-			dockerPath=$pathForContainer
+			
+			if [[ $pathForContainer == */ ]] ; then
+				dockerPath=$pathForContainer
+			else
+				dockerPath=$pathForContainer"/"
+			fi
 			break
 		fi
-	done
+	fi
 	
+	# TODO
 	# If folder exists, check if it contains a container and if it can be reconstructed
 	#if [[ -d "$pathForContainer" ]] ; THEN
 	#fi
+	
+	echo "  Searching for pools now ..."
+	
+	pls=$(cli -c "storage pool query" | tail -n +4 | head -n -1)
 
-	if [[ $pathForContainer != /mnt/* ]] ; then
-		echo "";
-		echo "  Path is not inside a system dataset.";
-		echo "  It is very likely that the script will be removed by future TrueNAS SCALE updates.";
-		echo "  Please be aware of this and periodically rerun this script after updating TrueNAS SCALE.";
-		echo "";
+	if $debug ; then
+			echo "  Query returned the following pool(s): ";
+			echo "$pls"
+	fi
+
+	pools=()
+	paths=()
+	while read -ra pool; do
+			j=1
+			for i in "${pool[@]}" ; do
+					if [ $j -eq 4 ] ; then
+							if $debug ; then
+									echo -n "  Pool name is" $i;
+							fi
+							pools+=($i)
+					fi
+					if [ $j -eq 8 ] ; then
+							if $debug ; then
+									echo " with path" $i;
+							fi
+							paths+=($i)
+					fi
+					((j=j+1))
+			done
+	done <<< "$pls"
+	
+	echo ""
+	echo "  Found a total of "${#pool[@]}" pools."
+	read -n 1 -p "  Would you like to bind one ore more of them to the container? [Y/n]  " bindPools
+  		
+	case $suggestedLocation in
+	''|[yY]*)
+		bindPools=true
+		;;
+	[nN]*)
+		bindPools=false
+		;;
+	*)
+		echo "  Invalid choice. Please try again";
+	esac
+	
+	if $bindPools ; then
+		echo ""
+		echo "  0.  None";
 		
-		if [[ $pathForContainer == */ ]] ; then
-			dockerPath=$pathForContainer
-		else
-			dockerPath=$pathForContainer"/"
-		fi
-		break
+		for i in $(seq 1 "${#pools[@]}") ; do
+			echo "  "$i". "${pools[$(($i-1))]};
+		done
+		
+		read -n 1 -p "  Which of the pools would you like to bind to the container? [0-${#pools[@]}]  " poolToBind
+  		
+		poolToBind=${paths[$(($poolToBind-1))]}
 	fi
 	
-	# Let user select pools/dataset to bind in container
-	# TODO
-	
-	
 	# Install docker inside the container (ask if portainer + watchtower)
+	if ! $dockerExists ; then
+		mkdir -p $dockerPath
+	fi
 	cd $dockerPath
 	# A kind thank you to the nspawn team for letting me use this link in this script
-	wget https://hub.nspawn.org/storage/debian/bookworm/tar/image.tar.xz
+	#wget https://hub.nspawn.org/storage/debian/bookworm/tar/image.tar.xz
+	cp ../image.tar.xz ./
 	mkdir rootfs
 	tar -xf image.tar.xz -C rootfs
 	rm rootfs/etc/machine-id
@@ -548,8 +633,9 @@ installDocker () {
 	if $useBridge ; then
 		command="$command --network-bridge=br0 --resolv-conf=bind-host"
 	fi
-	# Add binds at this point
-	# TODO
+	if $bindPools ; then
+		command="$command --bind='$poolToBind:$poolToBind'"
+	fi
 	
 	eval "$command"
 	
@@ -1028,16 +1114,16 @@ buildInitScript () {
 	if ! $initExists ; then
 		echo "  No previous init script detected.";
 	
-		if test -d /mnt/services ; then
+		if $servicesExist ; then
 			echo "";
 			echo "  Services partition detected. The default location for the init script is";
-			echo " " $initScript". It is recommended to use this location, since it will ensure";
+			echo "  /mnt/services/tnshInit.sh. It is recommended to use this location, since it will ensure";
 			echo "  that the init script will also survive TrueNAS SCALE updates.";
 			
-			read -n 1 -p "  Do you want to place the script in this default location? [y/n]  " defaultLocation
+			read -n 1 -p "  Do you want to place the script in this default location? [Y/n]  " defaultLocation
   
 			case $defaultLocation in
-			[yY]*)
+			''|[yY]*)
 				initScript=/mnt/services/tnshInit.sh
 				;;
 			[nN]*)
