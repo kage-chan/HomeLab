@@ -12,7 +12,7 @@
 #
 
 # Settings that are user-editable
-debug=true;
+debug=false;
 
 # Global variables
 version="0.65"
