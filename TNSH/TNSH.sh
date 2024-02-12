@@ -500,7 +500,6 @@ installDocker () {
 		case $suggestedLocation in
 		''|[yY]*)
 			dockerPath="/mnt/services/dockerNspawn"
-			choosePath=false
 			;;
 		[nN]*)
 			choosePath=true
@@ -1163,6 +1162,7 @@ buildInitScript () {
 	servicesExist=$(test -d /mnt/services);
 	
 	if ! $initExists ; then
+		echo ""
 		echo "  No previous init script detected.";
 	
 		if $servicesExist ; then
@@ -1176,18 +1176,16 @@ buildInitScript () {
 			case $defaultLocation in
 			''|[yY]*)
 				initScript=/mnt/services/tnshInit.sh
-				break
 				;;
 			[nN]*)
 				choosePath=true
-				break
 				;;
 			*)
 				echo "  Invalid choice. Please try again";
 			esac
 		fi
 	
-		if [ ! $servicesExist ] || [ $choosePath ] ; then
+		if $choosePath ; then
 			if  ! $servicesExist ; then
 				echo "";
 				echo "  No services partition detected in /mnt/services!";
@@ -1310,6 +1308,9 @@ buildInitScript () {
 		chmod ugo+x $initScript
 		cli -c "system init_shutdown_script create type=SCRIPT script=\""$initScript"\" when=POSTINIT"
 	fi
+	
+	getInitScript
+	readInitConfig
 }
 
 #------------------------------------------------------------------------------
