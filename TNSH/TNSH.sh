@@ -81,7 +81,8 @@ mainMenu () {
 	echo "";
 	echo "  Press p to show post-install menu";
 	echo "  Press 1 to optimize power settings";
-	echo "  Press 2 to install docker & portainer";
+	echo "  Press 2 to install Docker, Portainer & Watchtower";
+	echo "  Predd 3 to install HomeAssistant OS in a VM";
 	echo "  Press 0 to remove init script and revert changes";
 	echo "  Press q to quit";
 	echo ""
@@ -99,6 +100,10 @@ mainMenu () {
 			;;
 		[2]*)
 			installDocker
+			break
+			;;
+		[3]*)
+			installHAOS
 			break
 			;;
 		[pP]*)
@@ -244,10 +249,10 @@ optimizePower () {
 	while true; do
 		echo "  Power usage optimized. May take a minute to settle in. Please check power usage if available";
 		echo "";
-		read -n 1 -p "  Do you want these settings to be made permanent? [y/n]  " keepChanges
+		read -n 1 -p "  Do you want these settings to be made permanent? [Y/n]  " keepChanges
 		
 		case $keepChanges in
-		[yY]*)
+		''|[yY]*)
 			# Create RC script
 			buildInitScript POWER
 			echo "  Changes made permanent"
@@ -477,8 +482,10 @@ installDocker () {
 		fi
 		
 		# Create the new network bridge if required
-		cli -c "network interface update" ${interfaces[(($selectedInterface-1))]} "ipv4_dhcp=false"
+		cli -c "network interface update \""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=false"
 		cli -c "network interface create name=\""$bridgeToUse"\" type=BRIDGE bridge_members=\""${interfaces[(($selectedInterface-1))]}"\" ipv4_dhcp=true"
+		cli -c "network interface commit"
+		cli -c "network interface checkin"
 	fi
   
 	# Check if services partition exists and suggest placing container there
@@ -528,9 +535,10 @@ installDocker () {
 				echo "";
 				echo "  Directory does not exist. Creating.";
 				echo "";
-				dockerPath=$pathForContainer
-				break
 			fi
+			
+			dockerPath=$pathForContainer
+			break
 		done
 		
 		if [[ $pathForContainer != /mnt/* ]] ; then
@@ -585,19 +593,25 @@ installDocker () {
 	done <<< "$pls"
 	
 	echo ""
-	echo "  Found a total of "${#pool[@]}" pools."
-	read -n 1 -p "  Would you like to bind one ore more of them to the container? [Y/n]  " bindPools
+	echo "  Found a total of ${#pools} pools."
+	echo ""
+	
+	while true; do
+		read -n 1 -p "  Would you like to bind one ore more of them to the container? [Y/n]  " bindPools
   		
-	case $suggestedLocation in
-	''|[yY]*)
-		bindPools=true
-		;;
-	[nN]*)
-		bindPools=false
-		;;
-	*)
-		echo "  Invalid choice. Please try again";
-	esac
+		case $bindPools in
+		''|[yY]*)
+			bindPools=true
+			break
+			;;
+		[nN]*)
+			bindPools=false
+			break
+			;;
+		*)
+			echo "  Invalid choice. Please try again";
+		esac
+	done
 	
 	if $bindPools ; then
 		echo ""
@@ -610,6 +624,7 @@ installDocker () {
 		read -n 1 -p "  Which of the pools would you like to bind to the container? [0-${#pools[@]}]  " poolToBind
   		
 		poolToBind=${paths[$(($poolToBind-1))]}
+		echo "";
 	fi
 	
 	# Install docker inside the container (ask if portainer + watchtower)
@@ -618,8 +633,8 @@ installDocker () {
 	fi
 	cd $dockerPath
 	# A kind thank you to the nspawn team for letting me use this link in this script
-	#wget https://hub.nspawn.org/storage/debian/bookworm/tar/image.tar.xz
-	cp ../image.tar.xz ./
+	wget https://hub.nspawn.org/storage/debian/bookworm/tar/image.tar.xz
+	#cp /mnt/services/image.tar.xz ./
 	mkdir rootfs
 	tar -xf image.tar.xz -C rootfs
 	rm rootfs/etc/machine-id
@@ -727,6 +742,42 @@ installDocker () {
 	buildInitScript DOCKER 
 }
 
+
+#------------------------------------------------------------------------------
+# name: installHAOS
+# args: none
+# Create a new VM and installs the latest stable version of HAOS inside
+#------------------------------------------------------------------------------
+installHAOS () {
+	echo " Work in Progress... Coming Soon!"
+	echo mainMenu
+
+	# Get current HAOS version
+	version=$(curl -s https://raw.githubusercontent.com/home-assistant/version/master/$version.json | grep "ova" | cut -d '"' -f 4)
+	URL= "https://github.com/home-assistant/operating-system/releases/download/"$version"/haos_ova-"$version".qcow2.xz"
+	
+	# Create a temporary working directory
+	mkdir -p /mnt/services/HAOS
+	cd /mnt/services/HAOS
+	
+	# Get HAOS image
+	wget $URL
+	
+	# TrueNAS SCALE's VMs use zvols. To dd the image into the zvol, it needs to be
+	# converted into a raw image first
+	unxz haos_ova-$version.qcow2.xz
+	qemu-img convert -f qcow2 -O raw haos_ova-$version.qcow2 /dev/zvol/services/tnsh_haos
+	
+	zfs create -s -V 50GB services/haos
+	
+	dd if=/mnt/services/HAOS/haos.img of=/dev/zvol/services/tnsh_haos
+	
+	cli -c "service vm create name=\"TNSH_HAOS\" memory=2048"
+	# Get ID of new VM
+	$id=1
+	cli -c "service vm device create dtype=DISK vm="$id" attributes={\"type\":\"VIRTIO\",\"path\":\"/dev/zvol/services/haos\"}"
+	cli -c "service vm device> create dtype=NIC vm=3 attributes={\"type\":\"E1000\",\"nic_attach\":\"br0\"}"
+}
 
 #------------------------------------------------------------------------------
 # name: fillSysDrive
@@ -1125,9 +1176,11 @@ buildInitScript () {
 			case $defaultLocation in
 			''|[yY]*)
 				initScript=/mnt/services/tnshInit.sh
+				break
 				;;
 			[nN]*)
 				choosePath=true
+				break
 				;;
 			*)
 				echo "  Invalid choice. Please try again";
@@ -1181,14 +1234,14 @@ buildInitScript () {
 					echo "  It is very likely that the script will be removed by future TrueNAS SCALE updates.";
 					echo "  Please be aware of this and periodically rerun this script after updating TrueNAS SCALE.";
 					echo "";
-					
-					if [[ $pathForInitScript == */ ]] ; then
-						initScript=$pathForInitScript"tnshInit.sh"
-					else
-						initScript=$pathForInitScript"/tnshInit.sh"
-					fi
-					break
 				fi
+				
+				if [[ $pathForInitScript == */ ]] ; then
+					initScript=$pathForInitScript"tnshInit.sh"
+				else
+					initScript=$pathForInitScript"/tnshInit.sh"
+				fi
+				break
 			done
 		fi
 	fi
@@ -1288,7 +1341,7 @@ removeInitScript () {
 	while true; do
 		echo "";
 		echo "  Deleting the init script will revert all permanent changes after next reboot.";
-		read -n 1 -p "  Are your sure that you want to delete the init script? [y/n]  " confirmation
+		read -n 1 -p "  Are your sure that you want to delete the init script? [y/N]  " confirmation
   
 		case $confirmation in
 		[yY]*)
@@ -1296,7 +1349,7 @@ removeInitScript () {
 			
 			echo "  Unregistering init script and deleting file."
 			
-			cli -c "system init_shutdown_script delete id=\""$i"\""
+			cli -c "system init_shutdown_script delete id=\""$initScriptId"\""
 			
 			if $debug ; then
 				rm $initScript
@@ -1304,10 +1357,13 @@ removeInitScript () {
 				rm $initScript >> /dev/null
 			fi
 			
+			initExists=false
+			getInitScript
+			readInitConfig
 			read -p "  Press Enter to return to main menu"
 			mainMenu
 			;;
-		[nN]*)
+		''|[nN]*)
 			echo "";
 			read -p "  Aborting. Press Enter to return to main menu"
 			mainMenu
