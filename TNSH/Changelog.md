@@ -1,3 +1,3 @@
 0.7:
 - minor bugfixes
-- HAOS can not be installed in a VM
+- HAOS can now be installed in a VM

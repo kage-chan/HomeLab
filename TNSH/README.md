@@ -27,11 +27,6 @@ With the disclaimer out of the way, here's what the script can do fo you:
 - Reduce power usage when you want to stick to k3s
 - you will not be able to use TrueNAS SCALE's UI to manage Apps/Containers
 
-<<<<<<< HEAD
-# ⛏️ Usage
-Regardless of the mode your're running the TrueNAS SCALE Helper in, it will show you a menu and guide you through all steps as neccessary. As the script still is in it's very early stages, there might still be rought edges around here and there. Just feel free to open an issue 😊
-=======
-
 # ⛏️ Usage
 Regardless of the mode your're running the TrueNAS SCALE Helper in, it will show you a menu and guide you through all steps as neccessary. But, the script still is in it's very early stages, there might still be rought edges around here and there. I strongly encourage you to open an issue should you spot something 😊
 
