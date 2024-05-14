@@ -82,8 +82,10 @@ mainMenu () {
 	echo "  Press p to show post-install menu";
 	echo "  Press 1 to optimize power settings";
 	echo "  Press 2 to install Docker, Portainer & Watchtower";
-	echo "  Predd 3 to install HomeAssistant OS in a VM";
+	echo "  Press 3 to install HomeAssistant OS in a VM";
 	echo "  Press 0 to remove init script and revert changes";
+	echo "  Press r to recover previous install";
+	echo "  Press m to move the init script location";
 	echo "  Press q to quit";
 	echo ""
 	# Let user choose menu entry.
@@ -106,8 +108,16 @@ mainMenu () {
 			installHAOS
 			break
 			;;
+		[mM]*)
+			moveInitScript
+			break
+			;;
 		[pP]*)
 			postInstall
+			break
+			;;
+		[rR]*)
+			recoverInstall
 			break
 			;;
 		[qQ]*)
@@ -748,12 +758,10 @@ installDocker () {
 # Create a new VM and installs the latest stable version of HAOS inside
 #------------------------------------------------------------------------------
 installHAOS () {
-	echo " Work in Progress... Coming Soon!"
-	echo mainMenu
-
 	# Get current HAOS version
-	version=$(curl -s https://raw.githubusercontent.com/home-assistant/version/master/$version.json | grep "ova" | cut -d '"' -f 4)
-	URL= "https://github.com/home-assistant/operating-system/releases/download/"$version"/haos_ova-"$version".qcow2.xz"
+	echo "  Fetching current HAOS image"
+	version=$(curl -s https://raw.githubusercontent.com/home-assistant/version/master/stable.json | grep "ova" | cut -d '"' -f 4)
+	URL="https://github.com/home-assistant/operating-system/releases/download/"$version"/haos_ova-"$version".qcow2.xz"
 	
 	# Create a temporary working directory
 	mkdir -p /mnt/services/HAOS
@@ -762,20 +770,57 @@ installHAOS () {
 	# Get HAOS image
 	wget $URL
 	
-	# TrueNAS SCALE's VMs use zvols. To dd the image into the zvol, it needs to be
-	# converted into a raw image first
+	# TrueNAS SCALE's VMs use zvols. Convert the qcow image to a raw disk image. Conveniently zvol can be accessed as file :)
+	echo -n "  Extracting image. "
 	unxz haos_ova-$version.qcow2.xz
+	zfs create -s -V 32GB services/tnsh_haos
+	echo "Done."
+	# Sleep needed at this point, due to zvol creation taking some time
+	# and image conversion will fail due to missing destination otherwise
+	sleep 1
+	echo -n "  Writing image to disk. "
 	qemu-img convert -f qcow2 -O raw haos_ova-$version.qcow2 /dev/zvol/services/tnsh_haos
+	echo "Done."
 	
-	zfs create -s -V 50GB services/haos
-	
-	dd if=/mnt/services/HAOS/haos.img of=/dev/zvol/services/tnsh_haos
-	
+	echo "  Creating VM and attaching devices"
 	cli -c "service vm create name=\"TNSH_HAOS\" memory=2048"
 	# Get ID of new VM
-	$id=1
-	cli -c "service vm device create dtype=DISK vm="$id" attributes={\"type\":\"VIRTIO\",\"path\":\"/dev/zvol/services/haos\"}"
-	cli -c "service vm device> create dtype=NIC vm=3 attributes={\"type\":\"E1000\",\"nic_attach\":\"br0\"}"
+	query=$(cli -c "service vm query" | grep TNSH_HAOS)
+
+	j=1;
+    if [ ${#query} -eq 0 ] ; then
+        if $debug ; then
+                echo "  No virtual machines found."
+        fi
+    else
+        if $debug ; then
+                echo "  Virtual machine found. Fetching data. "
+        fi
+
+        initExists=true
+
+        for i in $query ; do
+                if [ $j -eq 2 ] ; then
+                        if $debug ; then
+                                echo "  VM's ID is:" $i;
+                        fi
+
+                        vmid=$i
+                fi
+                j=$((j+1))
+        done
+    fi
+	
+	cli -c "service vm device create dtype=DISK vm="$vmid" attributes={\"type\":\"VIRTIO\",\"path\":\"/dev/zvol/services/tnsh_haos\"}"
+	cli -c "service vm device create dtype=NIC vm="$vmid" attributes={\"type\":\"E1000\",\"nic_attach\":\"br0\"}"
+	
+	echo -n "  Cleaning up. "
+	rm -rf /mnt/services/HAOS
+	echo "Done."
+	
+	echo ""
+	echo "  Successfully installed HAOS."
+	sleep 3
 }
 
 #------------------------------------------------------------------------------
@@ -1152,6 +1197,20 @@ readInitConfig () {
 
 
 #------------------------------------------------------------------------------
+# name: getDockerConfig
+# args: none
+# Gets current configuration of the docker install like bridge, binds etc.
+# note: will store extracted config in global variables
+#------------------------------------------------------------------------------
+getDockerConfig () {
+	# Check if docker config file exists
+	# If it exists, "read" config file.
+	# If it does not exist, attempt to build one?
+	echo "";
+}
+
+
+#------------------------------------------------------------------------------
 # name: buildInitScript
 # args: none
 # Builds the init script, writes it and registers it with TrueNAS SCALES's
@@ -1373,6 +1432,21 @@ removeInitScript () {
 			echo "  Invalid choice. Please try again";
 		esac
 	done
+}
+
+
+#------------------------------------------------------------------------------
+# name: recoverInstall
+# args: none
+# Tries to recover the install in case the init script got lost in an update
+#------------------------------------------------------------------------------
+recoverInstall () {
+	echo "Not implemented"
+	mainMenu
+	
+	# As user if he remembers anything
+	# If yes, recover from there
+	# If no, do a quick search
 }
 
 

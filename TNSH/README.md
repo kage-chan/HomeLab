@@ -19,7 +19,8 @@ Why shell script you ask? I've never really done anything "serious" with shell s
 With the disclaimer out of the way, here's what the script can do fo you:
 - confine TrueNAS SCALE to certain area of disk and make rest available
 - optimize power management (temporarily and permanently)
-- (install basic docker environment with portainer to manage containers; not yet implemented coming these days)
+- install basic docker environment with portainer to manage containers
+- install HAOS in a VM for you
 
 ## ❌ Things the script can't do
 - make system disk's space available when you've already installed TrueNAS SCALE
@@ -36,7 +37,6 @@ Regardless of the mode your're running the TrueNAS SCALE Helper in, it will show
 
 >[!NOTE]
 >Although not strictly neccessary, it is recommended to run the script directly on the machine instead of using ssh. For most commands this does not pose a problem, but especially when creating a container for docker network settings are being messed with. These changes in network settings will likely cut your network connection to the machine, at least temporarily. Therefore, if possible try to run it on the machine directly or at least have means to find the new IP of the machine in case the network configuration changes!
->>>>>>> 45bd13eaa0d3b307c50521ad823205509bbb6f45
 
 ## 🔨 During TrueNAS SCALE install
 To install TrueNAS SCALE on a partition instead of the whole disk, the script offers a convenient "installer mode", which is only active if you start the script from the TrueNAS SCALE environment. To use the script, please choose "Shell" from the installer menu. In the shell, make sure that you have internet access and run the following code:
