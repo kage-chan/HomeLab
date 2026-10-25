@@ -1,0 +1,180 @@
+blueprint:
+  name: Air quality light
+  description: Colors a light from green to red based on CO₂ and PM2.5, with a static night mode.
+  domain: automation
+  input:
+    devices:
+      name: Devices
+      icon: mdi:devices
+      input:
+        co2_sensor:
+          name: CO₂ sensor
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: carbon_dioxide
+        pm_sensor:
+          name: PM2.5 sensor
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: pm25
+        light:
+          name: Light
+          selector:
+            entity:
+              filter:
+                - domain: light
+        night_sensor:
+          name: Night mode sensor
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+    co2:
+      name: CO₂ thresholds (ppm)
+      icon: mdi:molecule-co2
+      collapsed: true
+      input:
+        co2_green:
+          name: Green up to
+          default: 800
+          selector:
+            number: {min: 400, max: 3000, step: 50, mode: box, unit_of_measurement: ppm}
+        co2_yellow:
+          name: Yellow at
+          default: 1000
+          selector:
+            number: {min: 400, max: 3000, step: 50, mode: box, unit_of_measurement: ppm}
+        co2_red:
+          name: Red at
+          default: 1500
+          selector:
+            number: {min: 400, max: 3000, step: 50, mode: box, unit_of_measurement: ppm}
+    pm:
+      name: PM2.5 thresholds (µg/m³)
+      icon: mdi:blur
+      collapsed: true
+      input:
+        pm_green:
+          name: Green up to
+          default: 10
+          selector:
+            number: {min: 1, max: 150, step: 1, mode: box, unit_of_measurement: µg/m³}
+        pm_yellow:
+          name: Yellow at
+          default: 25
+          selector:
+            number: {min: 1, max: 150, step: 1, mode: box, unit_of_measurement: µg/m³}
+        pm_red:
+          name: Red at
+          default: 50
+          selector:
+            number: {min: 1, max: 150, step: 1, mode: box, unit_of_measurement: µg/m³}
+    look:
+      name: Colors and brightness
+      icon: mdi:palette
+      collapsed: true
+      input:
+        hue_green:
+          name: Hue for green (0-360)
+          default: 120
+          selector:
+            number: {min: 0, max: 360, step: 5, mode: box}
+        hue_yellow:
+          name: Hue for yellow (0-360)
+          default: 60
+          selector:
+            number: {min: 0, max: 360, step: 5, mode: box}
+        hue_red:
+          name: Hue for red (0-360)
+          default: 0
+          selector:
+            number: {min: 0, max: 360, step: 5, mode: box}
+        brightness_day:
+          name: Day brightness
+          default: 40
+          selector:
+            number: {min: 1, max: 100, step: 1, mode: slider, unit_of_measurement: "%"}
+        brightness_night:
+          name: Night brightness
+          default: 1
+          selector:
+            number: {min: 1, max: 100, step: 1, mode: slider, unit_of_measurement: "%"}
+        night_kelvin:
+          name: Night color temperature
+          default: 2000
+          selector:
+            number: {min: 2000, max: 4000, step: 100, mode: slider, unit_of_measurement: K}
+
+mode: restart
+
+variables:
+  co2_entity: !input co2_sensor
+  pm_entity: !input pm_sensor
+  night_entity: !input night_sensor
+  c_g: !input co2_green
+  c_y: !input co2_yellow
+  c_r: !input co2_red
+  p_g: !input pm_green
+  p_y: !input pm_yellow
+  p_r: !input pm_red
+  h_g: !input hue_green
+  h_y: !input hue_yellow
+  h_r: !input hue_red
+  b_day: !input brightness_day
+  b_night: !input brightness_night
+  k_night: !input night_kelvin
+
+triggers:
+  - trigger: state
+    entity_id:
+      - !input co2_sensor
+      - !input pm_sensor
+  - trigger: state
+    entity_id: !input night_sensor
+    id: night_change
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ not is_state(night_entity, 'on')
+         or (trigger is defined and trigger.id == 'night_change') }}
+
+actions:
+  - variables:
+      co2: "{{ states(co2_entity) | float(400) }}"
+      pm: "{{ states(pm_entity) | float(0) }}"
+      score: >
+        {% macro sc(v, g, y, r) -%}
+          {%- if v <= g -%}0
+          {%- elif v <= y -%}{{ (v - g) / (y - g) }}
+          {%- elif v < r -%}{{ 1 + (v - y) / (r - y) }}
+          {%- else -%}2{%- endif -%}
+        {%- endmacro %}
+        {{ [sc(co2, c_g, c_y, c_r) | float(0), sc(pm, p_g, p_y, p_r) | float(0)] | max }}
+      hue: >
+        {% set s = score | float(0) %}
+        {{ (h_g + (h_y - h_g) * s if s <= 1 else h_y + (h_r - h_y) * (s - 1)) | round(0) }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_state(night_entity, 'on') }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              color_temp_kelvin: "{{ k_night | int }}"
+              brightness_pct: "{{ b_night | int }}"
+              transition: 5
+    default:
+      - action: light.turn_on
+        target:
+          entity_id: !input light
+        data:
+          hs_color: "{{ [hue | float(120), 100] }}"
+          brightness_pct: "{{ b_day | int }}"
+          transition: 5
